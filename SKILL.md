@@ -183,6 +183,12 @@ Never present an inference as a confirmed fact.
 
 Never invent missing architecture.
 
+### File and line references
+
+Cite locations as `path/to/file.ext:start-end`. A line reference may only be written for a file that was read in this session, from the line numbers actually seen. Never recall, estimate, or extrapolate a line number. If a file was not read in full, cite the file without line numbers rather than guess.
+
+Before finishing, spot-check at least one reference per flow document against the file. A wrong line number is worse than none: it teaches the reader to distrust every other number in the map.
+
 ---
 
 ## 3. Implementation is the source of truth
@@ -222,6 +228,16 @@ docs/codebase-map/
 ```
 
 If that directory does not exist, create it.
+
+---
+
+## 5. Depth over summary
+
+The map is a reference a developer will navigate, not a summary they will skim. Every document should contain something the reader could not have learned from the file tree and function names alone.
+
+Read files in full. Cite concrete values: thresholds, limits, timeouts, versions. Record failure branches, not only happy paths. Record what is absent, not only what is present.
+
+If context pressure forces a choice between covering more of the repository shallowly and covering the important parts deeply, choose depth and record the gap under "What was not explored".
 
 ---
 
@@ -444,7 +460,7 @@ The Markdown document should explain the important relationships discovered in t
 
 Create 3–5 representative real user flows.
 
-Prioritize flows that teach the developer how the application actually works.
+Prioritize flows that teach the developer how the application actually works. Always include the flow that carries the product's core value — the thing the application exists to do.
 
 Good examples include:
 
@@ -467,29 +483,50 @@ docs/codebase-map/04-data-flows/[feature-name].md
 docs/codebase-map/04-data-flows/[feature-name].mmd
 ```
 
-Select the flows and the tracing strategy based on the archetype identified in Step 0.5. For a CLI tool, trace commands rather than inventing UI layers. For a pipeline, follow one record through the stages.
+Select the flows and the tracing strategy based on the archetype identified in Step 0.5. For a CLI tool, trace commands rather than inventing UI layers. For a pipeline, follow one record through the stages. For a frontend, start from the visible value and trace backward.
 
-Trace the request as far as the repository allows.
+Trace the request as far as the repository allows. Read every file on the path in full before writing. Do not summarize a step from its function name.
 
-For a typical client/server application, use this structure:
+## Required structure of every flow document
 
-```text
-User action
-→ UI
-→ component
-→ hook/state
-→ API client
-→ API route/controller
-→ service
-→ business logic
-→ database/external service
-→ response
-→ UI update
+Each flow document uses exactly these sections, in this order. Sections are not optional; if one has nothing to say, write one line explaining why.
+
+```markdown
+# Flow N — [Name]
+
+Archetype strategy: [which strategy from Step 0.5 and why]. Diagram: [link to .mmd]
+
+## Trigger
+What starts this flow. Every caller of the entry point, including the ones that are not the obvious user action (timers, other flows, lifecycle hooks, crash recovery).
+
+## Path — [CONFIRMED unless labelled]
+Numbered steps. Every step names the function and cites `path/to/file.ext:start-end`. Every step that is not directly observed in code is labelled INFERRED or UNKNOWN inline. Include the concrete values that govern behaviour: thresholds, timeouts, limits, batch sizes, retry counts, feature flags.
+
+## Data touched
+Table: value | where it is stored | which flow writes it. Include in-memory state that outlives the request, not only the database.
+
+## Failure modes — [CONFIRMED from code, not observed]
+Table: failure | what the code does | what the user sees. Cover every external call, every early return, every swallowed exception, every null-returning branch. Say explicitly when a failure is silent.
+
+## What is NOT in this flow
+Things a reader would reasonably expect here and will not find: features described in the README or comments but not implemented, code that exists but is never called on this path, stale comments referring to removed behaviour, tables or models that are written but never read.
+
+## Observations — [INFERRED, not verified at runtime]
+Race conditions, ordering assumptions, performance characteristics, inconsistencies between constants and documentation. Each observation states what it is based on.
+
+## Where the trace stops
+The exact point where repository evidence ends — external service internals, dynamic dispatch, platform behaviour, runtime configuration — and why. If the trace reached the end, say so.
 ```
 
-Do not force this structure when the application uses a different architecture.
+The failure-mode table is the most valuable section and the one most often skipped. A happy-path diagram hides every place where work is silently discarded. Write this section from the code's error branches, not from imagination.
 
-The purpose is to show the actual implementation path.
+Depth is the point. A flow document for a non-trivial feature typically runs 60–150 lines. A flow that fits in fifteen lines has been summarized, not traced.
+
+## Diagram for each flow
+
+The `.mmd` file is a sequence diagram for request-style flows and a flowchart for read-path or fan-out flows. Embed the same diagram in the `.md` file inside a mermaid code block so the document reads standalone.
+
+Label edges with the mechanism where it matters: stream, callback, HTTP method, event name, `await` vs fire-and-forget.
 
 ---
 
@@ -771,6 +808,23 @@ If a graph becomes too large, split it.
 
 Every diagram should answer a specific question.
 
+## Conventions
+
+Use the same visual language in every diagram so a reader learns it once:
+
+* Code that exists but is never called, or a model that is never used, gets a dashed grey style. Define it once and apply it by class rather than by node label:
+
+```text
+classDef unwired stroke-dasharray: 5 5,stroke:#999,color:#999;
+class ProgressionService,GridCell unwired;
+```
+
+* Dashed edges (`-.->`) mean an indirect or conditional relationship: a stream subscription, a fire-and-forget call, an import that is never invoked. Label the edge with the reason.
+* Solid edges mean a direct synchronous call or a hard dependency.
+* Data stores use the cylinder shape `[(name)]`. External services and third-party packages use the stadium shape `([name])`.
+* Group by deployment boundary in the system architecture diagram, and by directory in the dependency graph. Do not mix the two in one diagram.
+* Node labels carry identity, not findings. Put "not wired in" in a style and a note, not in the node text.
+
 ---
 
 # Large repository rules
@@ -816,6 +870,8 @@ Before finishing, verify:
 * diagrams are readable
 * important dependencies are represented
 * at least 3 useful data flows exist for a sufficiently large application
+* every flow document has all seven required sections, including a failure-mode table
+* every file:line reference comes from a file read in this session, and at least one per flow was spot-checked
 * paths actually exist
 * claims are evidence-based
 * inferred information is labeled
